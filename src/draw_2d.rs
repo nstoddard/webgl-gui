@@ -208,30 +208,27 @@ impl Draw2d {
 
     /// Draws an image. Unlike the other functions on `Draw2d`, this draws the image immediately.
     pub fn draw_image(&mut self, surface: &impl Surface, tex: &Texture2d, pos: Point2<f32>) {
-        // TODO: combine some of this code with Text.render_queued_chars
         let surface_size = surface.size();
-        /*let matrix = Matrix4::scale(Vec2(1.0, -1.0))
-         * Matrix4::ortho(surface_size.x as f32, surface_size.y as f32);*/
-        let matrix = Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)// Mat4::scale(Vec2(1.0, -1.0))
-            * ortho(0.0, surface_size.x as f32, 0.0, surface_size.y as f32, 0.0, 1.0); // Mat4::ortho(surface_size.x as f32, surface_size.y as f32);
+        let matrix = Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)
+            * ortho(0.0, surface_size.x as f32, 0.0, surface_size.y as f32, 0.0, 1.0);
 
         let a = self.image_mesh_builder.vert(ImageVert {
-            pos: point2(0.0, 0.0),
+            pos,
             uv: point2(0.0, 0.0),
             color: Color4::WHITE,
         });
         let b = self.image_mesh_builder.vert(ImageVert {
-            pos: point2(tex.size().x as f32, 0.0),
+            pos: pos + vec2(tex.size().x as f32, 0.0),
             uv: point2(1.0, 0.0),
             color: Color4::WHITE,
         });
         let c = self.image_mesh_builder.vert(ImageVert {
-            pos: point2(0.0, tex.size().y as f32),
+            pos: pos + vec2(0.0, tex.size().y as f32),
             uv: point2(0.0, 1.0),
             color: Color4::WHITE,
         });
         let d = self.image_mesh_builder.vert(ImageVert {
-            pos: point2(tex.size().x as f32, tex.size().y as f32),
+            pos: pos + vec2(tex.size().x as f32, tex.size().y as f32),
             uv: point2(1.0, 1.0),
             color: Color4::WHITE,
         });
