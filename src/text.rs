@@ -232,8 +232,8 @@ impl FontInner {
             GlProgram::new_with_minimal_header(context, RENDER_VERT_SHADER, RENDER_FRAG_SHADER);
         let cache_mesh_builder = MeshBuilder::new();
         let render_mesh_builder = MeshBuilder::new();
-        let cache_mesh = Mesh::new(context, &cache_program);
-        let render_mesh = Mesh::new(context, &render_program);
+        let cache_mesh = Mesh::new(context, &cache_program, DrawMode::Draw2D);
+        let render_mesh = Mesh::new(context, &render_program, DrawMode::Draw2D);
 
         Self {
             size,

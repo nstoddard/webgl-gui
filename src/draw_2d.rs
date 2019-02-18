@@ -129,9 +129,9 @@ impl Draw2d {
             true,
         );
         let triangle_mesh_builder = MeshBuilder::new();
-        let triangle_mesh = Mesh::new(context, &plain_program);
+        let triangle_mesh = Mesh::new(context, &plain_program, DrawMode::Draw2D);
         let image_mesh_builder = MeshBuilder::new();
-        let image_mesh = Mesh::new(context, &image_program);
+        let image_mesh = Mesh::new(context, &image_program, DrawMode::Draw2D);
         Self { triangle_mesh_builder, triangle_mesh, image_mesh_builder, image_mesh }
     }
 
