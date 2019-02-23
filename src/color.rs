@@ -62,6 +62,11 @@ impl Color4 {
         self2 + other * other.a
     }
 
+    /// Interpolates between two colors.
+    pub fn lerp(self, other: Color4, other_amount: f32) -> Color4 {
+        self * (1.0 - other_amount) + other * other_amount
+    }
+
     /// Converts this `Color4` to sRGB, multiplies by the given constant, and converts back.
     ///
     /// Useful for making a color brighter or darker. Because the multiplication is done in
