@@ -404,10 +404,7 @@ impl FontInner {
         self.cache_glyph(context, c);
         let glyph = self.get_cached_glyph(c);
         if let Some(display) = &glyph.display {
-            let loc = vec2(
-                loc.x as f32,
-                loc.y as f32 + self.ascent as f32,
-            );
+            let loc = vec2(loc.x as f32, loc.y as f32 + self.ascent as f32);
             let framebuffer_size = self.framebuffer.attachment.size();
             let tex_start = display.loc;
             let tex_end = tex_start + display.size;

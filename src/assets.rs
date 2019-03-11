@@ -31,6 +31,8 @@ impl Assets {
     ///
     /// Panics if any asset can't be loaded.
     pub fn load(asset_urls: Vec<String>, image_urls: Vec<String>, callback: Box<dyn Fn(Assets)>) {
+        assert!(!asset_urls.is_empty() || !image_urls.is_empty());
+
         let loaded_assets: Rc<RefCell<HashMap<String, Vec<u8>>>> =
             Rc::new(RefCell::new(collect![]));
         let loaded_images: Rc<RefCell<HashMap<String, HtmlImageElement>>> =

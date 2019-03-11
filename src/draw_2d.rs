@@ -110,7 +110,8 @@ pub struct Draw2d {
     triangle_mesh_builder: MeshBuilder<PlainVert, Triangles>,
     triangle_mesh: Mesh<PlainVert, PlainUniformsGl, Triangles>,
     image_mesh_builder: MeshBuilder<ImageVert, Triangles>,
-    image_mesh: Mesh<ImageVert, ImageUniformsGl, Triangles>,
+    image_mesh_srgb: Mesh<ImageVert, ImageUniformsGl, Triangles>,
+    image_mesh_linear: Mesh<ImageVert, ImageUniformsGl, Triangles>,
 }
 
 impl Draw2d {
@@ -122,17 +123,31 @@ impl Draw2d {
             include_str!("../shaders/plain_frag.glsl"),
             true,
         );
-        let image_program: GlProgram<ImageVert, ImageUniformsGl> = GlProgram::new_with_header(
+        let image_program_srgb: GlProgram<ImageVert, ImageUniformsGl> = GlProgram::new_with_header(
             &context,
             include_str!("../shaders/image_vert.glsl"),
             include_str!("../shaders/image_frag.glsl"),
             true,
         );
+        let image_program_linear: GlProgram<ImageVert, ImageUniformsGl> =
+            GlProgram::new_with_header(
+                &context,
+                include_str!("../shaders/image_vert.glsl"),
+                include_str!("../shaders/image_frag.glsl"),
+                false,
+            );
         let triangle_mesh_builder = MeshBuilder::new();
         let triangle_mesh = Mesh::new(context, &plain_program, DrawMode::Draw2D);
         let image_mesh_builder = MeshBuilder::new();
-        let image_mesh = Mesh::new(context, &image_program, DrawMode::Draw2D);
-        Self { triangle_mesh_builder, triangle_mesh, image_mesh_builder, image_mesh }
+        let image_mesh_srgb = Mesh::new(context, &image_program_srgb, DrawMode::Draw2D);
+        let image_mesh_linear = Mesh::new(context, &image_program_linear, DrawMode::Draw2D);
+        Self {
+            triangle_mesh_builder,
+            triangle_mesh,
+            image_mesh_builder,
+            image_mesh_srgb,
+            image_mesh_linear,
+        }
     }
 
     /// Render all queued shapes. Until this is called nothing is actually rendered.
@@ -235,8 +250,10 @@ impl Draw2d {
         self.image_mesh_builder.triangle(a, b, c);
         self.image_mesh_builder.triangle(b, c, d);
 
-        self.image_mesh.build_from(&self.image_mesh_builder, MeshUsage::DynamicDraw);
-        self.image_mesh.draw(surface, &ImageUniforms { matrix, color: Color4::WHITE, tex });
+        let image_mesh =
+            if tex.is_srgb() { &mut self.image_mesh_srgb } else { &mut self.image_mesh_linear };
+        image_mesh.build_from(&self.image_mesh_builder, MeshUsage::DynamicDraw);
+        image_mesh.draw(surface, &ImageUniforms { matrix, color: Color4::WHITE, tex });
 
         self.image_mesh_builder.clear();
     }
