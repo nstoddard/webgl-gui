@@ -7,14 +7,26 @@ use std::ops::*;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_stopwatch::*;
 use web_sys::*;
 
 use crate::event::*;
 
-struct EventState {
+struct EventData {
     events: Vec<Event>,
-    pressed_keys: FnvHashSet<Keycode>,
-    cursor_pos: Option<Point2<i32>>,
+    event_state: EventState,
+}
+
+pub struct EventState {
+    /// Contains all keys that are currently ypressed.
+    /// Note that this contains keycodes (`event.code`), not `event.key` values.
+    pub pressed_keys: FnvHashSet<Keycode>,
+    /// All mouse buttons that are currently pressed.
+    pub pressed_mouse_buttons: FnvHashSet<MouseButton>,
+    /// The current position of the cursor, if it's within the canvas.
+    pub cursor_pos: Option<Point2<i32>>,
+    /// True if a pointer lock is active (through the pointer lock API).
+    pub pointer_locked: bool,
 }
 
 /// An app that renders to a WebGL canvas.
@@ -25,14 +37,12 @@ pub trait App {
     /// Called every time a frame should be rendered; uses `requestAnimationFrame`.
     ///
     /// `events` contains all events that have occurred since the last call to this function.
-    /// `pressed_keys` contains all keys that are currently pressed (except modifiers).
-    /// Note that `pressed_keys` contains keycodes (`event.code`), not `event.key` values.
-    /// `cursor_pos` is the current position of the cursor, if it's within the canvas.
     fn render_frame(
         &mut self,
         events: Vec<Event>,
-        pressed_keys: &FnvHashSet<Keycode>,
-        cursor_pos: Option<Point2<i32>>,
+        event_state: &EventState,
+        // How much time has passed since the last call to render_frame, in seconds.
+        dt: f64,
     );
 }
 
@@ -41,34 +51,56 @@ pub trait App {
 /// `canvas_id` should be the ID of the canvas the app is rendering to. All mouse event positions
 /// are relative to the top-left corner of this canvas.
 pub fn start_main_loop(canvas_id: &str, app: Box<dyn App>) {
-    let event_state = Rc::new(RefCell::new(EventState {
+    let event_data = Rc::new(RefCell::new(EventData {
         events: vec![],
-        pressed_keys: collect![],
-        cursor_pos: None,
+        event_state: EventState {
+            pressed_keys: collect![],
+            pressed_mouse_buttons: collect![],
+            cursor_pos: None,
+            pointer_locked: false,
+        },
     }));
-    let event_state2 = event_state.clone();
-    let event_state3 = event_state.clone();
-    let event_state4 = event_state.clone();
+    let event_data2 = event_data.clone();
+    let event_data3 = event_data.clone();
+    let event_data4 = event_data.clone();
 
     let app = Rc::new(RefCell::new(app));
     let app2 = app.clone();
 
+    let mut stopwatch = Stopwatch::new();
+
     let callback = Rc::new(RefCell::new(move |event: Event| {
         app.borrow_mut().handle_event(event.clone());
-        let mut event_state = event_state.borrow_mut();
+        let mut event_data = event_data.borrow_mut();
         match event {
             Event::KeyDown(ref key) => {
-                event_state.pressed_keys.insert(key.code.clone());
+                event_data.event_state.pressed_keys.insert(key.code.clone());
             }
             Event::KeyUp(ref key) => {
-                event_state.pressed_keys.remove(&key.code);
+                event_data.event_state.pressed_keys.remove(&key.code);
             }
             Event::FocusLost => {
-                event_state.pressed_keys.clear();
+                event_data.event_state.pressed_keys.clear();
+                event_data.event_state.pressed_mouse_buttons.clear();
+            }
+            Event::MouseDown(button, _) => {
+                event_data.event_state.pressed_mouse_buttons.insert(button);
+            }
+            Event::MouseUp(button, _) => {
+                event_data.event_state.pressed_mouse_buttons.remove(&button);
+            }
+            Event::MouseLeave => {
+                event_data.event_state.pressed_mouse_buttons.clear();
+            }
+            Event::PointerLocked => {
+                event_data.event_state.pointer_locked = true;
+            }
+            Event::PointerUnlocked => {
+                event_data.event_state.pointer_locked = false;
             }
             _ => (),
         }
-        event_state.events.push(event);
+        event_data.events.push(event);
     }));
     // A clone of this is needed for each event handler.
     let callback2 = callback.clone();
@@ -79,15 +111,16 @@ pub fn start_main_loop(canvas_id: &str, app: Box<dyn App>) {
     let callback7 = callback.clone();
     let callback8 = callback.clone();
     let callback9 = callback.clone();
+    let callback10 = callback.clone();
+    let callback11 = callback.clone();
 
     let window = window().unwrap();
     let document = window.document().unwrap();
+    let document2 = document.clone();
     let canvas = document.get_element_by_id(canvas_id).unwrap();
 
     let keydown_handler = Closure::wrap(Box::new(move |e: KeyboardEvent| {
-        if e.key() != "Shift" && e.key() != "Control" && e.key() != "Alt" && e.key() != "AltGraph" {
-            callback.borrow_mut().deref_mut()(Event::KeyDown(Key::from_js(e)))
-        }
+        callback.borrow_mut().deref_mut()(Event::KeyDown(Key::from_js(e)))
     }) as Box<dyn FnMut(KeyboardEvent)>);
     document
         .add_event_listener_with_callback("keydown", keydown_handler.as_ref().unchecked_ref())
@@ -95,9 +128,7 @@ pub fn start_main_loop(canvas_id: &str, app: Box<dyn App>) {
     keydown_handler.forget();
 
     let keyup_handler = Closure::wrap(Box::new(move |e: KeyboardEvent| {
-        if e.key() != "Shift" && e.key() != "Control" && e.key() != "Alt" && e.key() != "AltGraph" {
-            callback2.borrow_mut().deref_mut()(Event::KeyUp(Key::from_js(e)))
-        }
+        callback2.borrow_mut().deref_mut()(Event::KeyUp(Key::from_js(e)))
     }) as Box<dyn FnMut(KeyboardEvent)>);
     document
         .add_event_listener_with_callback("keyup", keyup_handler.as_ref().unchecked_ref())
@@ -146,8 +177,8 @@ pub fn start_main_loop(canvas_id: &str, app: Box<dyn App>) {
 
     let mousemove_handler = Closure::wrap(Box::new(move |e: MouseEvent| {
         if let Some(event) = mouse_move_event_from_js(e) {
-            if let Event::MouseMove(pos) = &event {
-                event_state2.borrow_mut().cursor_pos = Some(*pos);
+            if let Event::MouseMove { pos, .. } = &event {
+                event_data2.borrow_mut().event_state.cursor_pos = Some(*pos);
             } else {
                 panic!();
             }
@@ -170,7 +201,7 @@ pub fn start_main_loop(canvas_id: &str, app: Box<dyn App>) {
     mouseenter_handler.forget();
 
     let mouseleave_handler = Closure::wrap(Box::new(move |e: MouseEvent| {
-        event_state3.borrow_mut().cursor_pos = None;
+        event_data3.borrow_mut().event_state.cursor_pos = None;
         (&mut callback9.borrow_mut())(Event::MouseLeave);
     }) as Box<dyn FnMut(MouseEvent)>);
     canvas
@@ -178,12 +209,37 @@ pub fn start_main_loop(canvas_id: &str, app: Box<dyn App>) {
         .unwrap();
     mouseleave_handler.forget();
 
+    let resize_handler = Closure::wrap(Box::new(move || {
+        (&mut callback10.borrow_mut())(Event::WindowResized(get_window_size()));
+    }) as Box<dyn FnMut()>);
+    window
+        .add_event_listener_with_callback("resize", resize_handler.as_ref().unchecked_ref())
+        .unwrap();
+    resize_handler.forget();
+
+    let pointer_lock_change_handler = Closure::wrap(Box::new(move || {
+        (&mut callback11.borrow_mut())(if document2.pointer_lock_element().is_some() {
+            Event::PointerLocked
+        } else {
+            Event::PointerUnlocked
+        });
+    }) as Box<dyn FnMut()>);
+    document
+        .add_event_listener_with_callback(
+            "pointerlockchange",
+            pointer_lock_change_handler.as_ref().unchecked_ref(),
+        )
+        .unwrap();
+    pointer_lock_change_handler.forget();
+
     let closure: Rc<RefCell<Option<Closure<_>>>> = Rc::new(RefCell::new(None));
     let closure2 = closure.clone();
     *closure.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        let mut event_state = event_state4.borrow_mut();
-        let events = std::mem::replace(&mut event_state.events, vec![]);
-        app2.borrow_mut().render_frame(events, &event_state.pressed_keys, event_state.cursor_pos);
+        let mut event_data = event_data4.borrow_mut();
+        let events = std::mem::replace(&mut event_data.events, vec![]);
+        let dt = stopwatch.get_time();
+        stopwatch.reset();
+        app2.borrow_mut().render_frame(events, &event_data.event_state, dt);
 
         web_sys::window()
             .unwrap()

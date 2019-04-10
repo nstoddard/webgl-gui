@@ -94,6 +94,7 @@ impl Mul<f32> for Color4 {
 }
 
 impl From<Color4> for [f32; 4] {
+    /// Converts the `Color4` into an array, converting to sRGB in the process.
     fn from(color: Color4) -> [f32; 4] {
         color.to_srgb()
     }

@@ -1,6 +1,6 @@
 use cgmath::*;
 use fnv::*;
-use std::rc::Rc;
+use log::*;
 use webgl_wrapper::*;
 
 use crate::color::*;
@@ -15,7 +15,7 @@ pub struct Label {
 
 impl Label {
     pub fn new(text: &str) -> Box<Self> {
-        Box::new(Label { id: WidgetId::new(), text: text.to_string() })
+        Box::new(Label { id: WidgetId::new(), text: text.to_owned() })
     }
 }
 
@@ -27,10 +27,11 @@ impl Widget for Label {
     fn draw(
         &self,
         context: &GlContext,
+        _surface: &dyn Surface,
         rect: Rect<i32>,
         theme: &Theme,
         _draw_2d: &mut Draw2d,
-        _cursor_pos: Option<Point2<f64>>,
+        _cursor_pos: Option<Point2<i32>>,
         _is_active: bool,
     ) {
         theme.font.draw_string(context, &self.text, rect.start, theme.label_color);
@@ -66,14 +67,18 @@ pub struct Button {
 impl Button {
     pub fn new(text: &str) -> Box<Self> {
         let id = WidgetId::new();
-        Box::new(Button { id, text: text.to_string() })
+        Box::new(Button { id, text: text.to_owned() })
+    }
+
+    pub fn set_text(&mut self, text: &str) {
+        self.text = text.to_owned();
     }
 }
 
 impl Component for Button {
     type Res = ButtonResult;
 
-    fn update(&mut self, events: Vec<Event>) -> ButtonResult {
+    fn update(&mut self, _theme: &Theme, events: Vec<Event>) -> ButtonResult {
         let mut pressed = false;
         for event in events {
             match event {
@@ -107,10 +112,11 @@ impl Widget for Button {
     fn draw(
         &self,
         context: &GlContext,
+        _surface: &dyn Surface,
         rect: Rect<i32>,
         theme: &Theme,
         draw_2d: &mut Draw2d,
-        cursor_pos: Option<Point2<f64>>,
+        cursor_pos: Option<Point2<i32>>,
         is_active: bool,
     ) {
         let fill_color =
@@ -163,10 +169,11 @@ impl Widget for NoFill {
     fn draw(
         &self,
         _context: &GlContext,
+        _surface: &dyn Surface,
         _rect: Rect<i32>,
         _theme: &Theme,
         _draw_2d: &mut Draw2d,
-        _cursor_pos: Option<Point2<f64>>,
+        _cursor_pos: Option<Point2<i32>>,
         _is_active: bool,
     ) {
     }
@@ -233,10 +240,11 @@ impl Widget for Col {
     fn draw(
         &self,
         _context: &GlContext,
+        _surface: &dyn Surface,
         _rect: Rect<i32>,
         _theme: &Theme,
         _draw_2d: &mut Draw2d,
-        _cursor_pos: Option<Point2<f64>>,
+        _cursor_pos: Option<Point2<i32>>,
         _is_active: bool,
     ) {
     }
@@ -320,10 +328,11 @@ impl Widget for Row {
     fn draw(
         &self,
         _context: &GlContext,
+        _surface: &dyn Surface,
         _rect: Rect<i32>,
         _theme: &Theme,
         _draw_2d: &mut Draw2d,
-        _cursor_pos: Option<Point2<f64>>,
+        _cursor_pos: Option<Point2<i32>>,
         _is_active: bool,
     ) {
     }
@@ -388,7 +397,7 @@ pub struct TextBox {
 impl TextBox {
     pub fn new(text: &str) -> Box<Self> {
         let mut res = Box::new(TextBox {
-            text: text.to_string(),
+            text: text.to_owned(),
             lines: vec![],
             text_color: Color4::BLACK,
             id: WidgetId::new(),
@@ -403,7 +412,7 @@ impl TextBox {
     }
 
     fn update_lines(&mut self) {
-        self.lines = self.text.split('\n').map(|x| x.to_string()).collect();
+        self.lines = self.text.split('\n').map(|x| x.to_owned()).collect();
     }
 }
 
@@ -415,10 +424,11 @@ impl Widget for TextBox {
     fn draw(
         &self,
         context: &GlContext,
+        _surface: &dyn Surface,
         rect: Rect<i32>,
         theme: &Theme,
         _draw_2d: &mut Draw2d,
-        _cursor_pos: Option<Point2<f64>>,
+        _cursor_pos: Option<Point2<i32>>,
         _is_active: bool,
     ) {
         let advance_y = theme.font.advance_y();
@@ -478,10 +488,11 @@ impl Widget for MessageBox {
     fn draw(
         &self,
         context: &GlContext,
+        _surface: &dyn Surface,
         rect: Rect<i32>,
         theme: &Theme,
         _draw_2d: &mut Draw2d,
-        _cursor_pos: Option<Point2<f64>>,
+        _cursor_pos: Option<Point2<i32>>,
         _is_active: bool,
     ) {
         let advance_y = theme.font.advance_y();
@@ -541,10 +552,11 @@ impl Widget for Overlap {
     fn draw(
         &self,
         _context: &GlContext,
+        _surface: &dyn Surface,
         _rect: Rect<i32>,
         _theme: &Theme,
         _draw_2d: &mut Draw2d,
-        _cursor_pos: Option<Point2<f64>>,
+        _cursor_pos: Option<Point2<i32>>,
         _is_active: bool,
     ) {
     }
@@ -584,17 +596,23 @@ impl Widget for Overlap {
     }
 }
 
-pub struct Empty {
+#[derive(Clone)]
+pub struct EmptyWidget {
     id: WidgetId,
+    size: Vector2<i32>,
 }
 
-impl Empty {
+impl EmptyWidget {
     pub fn new() -> Box<Self> {
-        Box::new(Empty { id: WidgetId::new() })
+        Self::with_size(Vector2::zero())
+    }
+
+    pub fn with_size(size: Vector2<i32>) -> Box<Self> {
+        Box::new(EmptyWidget { id: WidgetId::new(), size })
     }
 }
 
-impl Widget for Empty {
+impl Widget for EmptyWidget {
     fn id(&self) -> WidgetId {
         self.id
     }
@@ -602,10 +620,11 @@ impl Widget for Empty {
     fn draw(
         &self,
         _context: &GlContext,
+        _surface: &dyn Surface,
         _rect: Rect<i32>,
         _theme: &Theme,
         _draw_2d: &mut Draw2d,
-        _cursor_pos: Option<Point2<f64>>,
+        _cursor_pos: Option<Point2<i32>>,
         _is_active: bool,
     ) {
     }
@@ -617,7 +636,7 @@ impl Widget for Empty {
         _min_sizes: &FnvHashMap<WidgetId, Vector2<i32>>,
         _window_size: Vector2<i32>,
     ) -> Vector2<i32> {
-        Vector2::zero()
+        self.size
     }
 }
 
@@ -639,10 +658,11 @@ impl Widget for Padding {
     fn draw(
         &self,
         _context: &GlContext,
+        _surface: &dyn Surface,
         _rect: Rect<i32>,
         _theme: &Theme,
         _draw_2d: &mut Draw2d,
-        _cursor_pos: Option<Point2<f64>>,
+        _cursor_pos: Option<Point2<i32>>,
         _is_active: bool,
     ) {
     }
@@ -677,10 +697,11 @@ impl Widget for Inset {
     fn draw(
         &self,
         _context: &GlContext,
+        _surface: &dyn Surface,
         _rect: Rect<i32>,
         _theme: &Theme,
         _draw_2d: &mut Draw2d,
-        _cursor_pos: Option<Point2<f64>>,
+        _cursor_pos: Option<Point2<i32>>,
         _is_active: bool,
     ) {
     }
@@ -719,5 +740,112 @@ impl Widget for Inset {
             min_sizes,
             widget_rects,
         );
+    }
+}
+
+/// Lets the user select one of several options.
+#[derive(Clone)]
+pub struct Selector<T: Copy + PartialEq> {
+    options: Vec<(String, T)>,
+    selected_option: Option<usize>,
+    id: WidgetId,
+}
+
+impl<T: Copy + PartialEq> Selector<T> {
+    pub fn new(options: Vec<(String, T)>, selected_option: Option<T>) -> Box<Self> {
+        let mut res = Box::new(Self {
+            selected_option: selected_option.map(|selected_option| {
+                options.iter().position(|x| selected_option == x.1).unwrap()
+            }),
+            options,
+            id: WidgetId::new(),
+        });
+        res
+    }
+
+    pub fn selected_option(&self) -> Option<T> {
+        self.selected_option.map(|selected_option| self.options[selected_option].1)
+    }
+}
+
+impl<T: Copy + PartialEq> Widget for Selector<T> {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn is_component(&self) -> bool {
+        true
+    }
+
+    fn draw(
+        &self,
+        context: &GlContext,
+        _surface: &dyn Surface,
+        rect: Rect<i32>,
+        theme: &Theme,
+        draw_2d: &mut Draw2d,
+        cursor_pos: Option<Point2<i32>>,
+        _is_active: bool,
+    ) {
+        for (i, (line, _)) in self.options.iter().enumerate() {
+            let pos = rect.start.cast().unwrap() + vec2(0, theme.font.advance_y() * i as i32);
+            let rect = Rect::new(pos, pos + theme.font.string_size(context, &line));
+            let background_color = if Some(i) == self.selected_option {
+                Color4::WHITE.mul_srgb(0.5)
+            } else if cursor_pos.is_some()
+                && rect.contains_point(cursor_pos.unwrap().cast().unwrap())
+            {
+                Color4::WHITE.mul_srgb(0.75)
+            } else {
+                Color4::WHITE
+            };
+            draw_2d.fill_rect(rect, background_color);
+            theme.font.draw_string(context, &line, pos, Color4::BLACK);
+        }
+    }
+
+    fn min_size(
+        &self,
+        context: &GlContext,
+        theme: &Theme,
+        _min_sizes: &FnvHashMap<WidgetId, Vector2<i32>>,
+        _window_size: Vector2<i32>,
+    ) -> Vector2<i32> {
+        let max_width =
+            self.options.iter().map(|(x, _)| theme.font.string_width(context, x) as i32).max();
+        if let Some(max_width) = max_width {
+            vec2(max_width as i32, theme.font.advance_y() as i32 * self.options.len() as i32)
+        } else {
+            vec2(0, 0)
+        }
+    }
+}
+
+pub struct SelectorResult<T: Copy + PartialEq> {
+    pub selected: Option<T>,
+    pub just_selected: bool,
+}
+
+impl<T: Copy + PartialEq> Component for Selector<T> {
+    type Res = SelectorResult<T>;
+
+    fn update(&mut self, theme: &Theme, events: Vec<Event>) -> Self::Res {
+        let mut just_selected = false;
+        for event in events {
+            match event {
+                Event::MouseDown(MouseButton::Left, pos) => {
+                    let entry = pos.y / theme.font.advance_y() as i32;
+                    assert!(entry >= 0 && (entry as usize) < self.options.len());
+                    self.selected_option = Some(entry as usize);
+                    just_selected = true;
+                }
+                _ => (),
+            }
+        }
+
+        SelectorResult {
+            selected: self.selected_option.map(|selected_option| self.options[selected_option].1),
+            just_selected,
+        }
     }
 }

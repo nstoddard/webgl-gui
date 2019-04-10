@@ -153,7 +153,7 @@ impl Draw2d {
     /// Render all queued shapes. Until this is called nothing is actually rendered.
     ///
     /// This should typically be called once per frame to minimize the number of draw calls.
-    pub fn render_queued(&mut self, surface: &impl Surface) {
+    pub fn render_queued(&mut self, surface: &(impl Surface + ?Sized)) {
         let surface_size = surface.size();
         let matrix = Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)
             * ortho(0.0, surface_size.x as f32, 0.0, surface_size.y as f32, 0.0, 1.0);
@@ -211,10 +211,11 @@ impl Draw2d {
         let rect = rect.cast().unwrap();
         self.draw_line_strip(
             &[
-                rect.start,
-                point2(rect.end.x, rect.start.y),
-                rect.end,
-                point2(rect.start.x, rect.end.y),
+                rect.start + vec2(0.5, 0.5),
+                point2(rect.end.x, rect.start.y) + vec2(0.5, 0.5),
+                rect.end + vec2(0.5, 0.5),
+                point2(rect.start.x, rect.end.y) + vec2(0.5, 0.5),
+                rect.start + vec2(0.5, 0.5),
             ],
             color,
             width,
@@ -222,10 +223,17 @@ impl Draw2d {
     }
 
     /// Draws an image. Unlike the other functions on `Draw2d`, this draws the image immediately.
-    pub fn draw_image(&mut self, surface: &impl Surface, tex: &Texture2d, pos: Point2<f32>) {
+    pub fn draw_image(
+        &mut self,
+        surface: &(impl Surface + ?Sized),
+        tex: &Texture2d,
+        pos: Point2<f32>,
+        scale: f32,
+    ) {
         let surface_size = surface.size();
         let matrix = Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)
-            * ortho(0.0, surface_size.x as f32, 0.0, surface_size.y as f32, 0.0, 1.0);
+            * ortho(0.0, surface_size.x as f32, 0.0, surface_size.y as f32, 0.0, 1.0)
+            * Matrix4::from_nonuniform_scale(scale, scale, 1.0);
 
         let a = self.image_mesh_builder.vert(ImageVert {
             pos,

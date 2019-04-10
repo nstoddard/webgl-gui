@@ -1,6 +1,7 @@
 use cgmath::*;
 use collect_mac::*;
 use fnv::*;
+use log::*;
 use std::mem;
 use uid::*;
 use webgl_wrapper::*;
@@ -39,7 +40,7 @@ pub trait Component: Widget {
 
     /// Updates the component's internal state and returns a result. This shouldn't be called from
     /// outside of `webgl-gui`.
-    fn update(&mut self, events: Vec<Event>) -> Self::Res;
+    fn update(&mut self, theme: &Theme, events: Vec<Event>) -> Self::Res;
 }
 
 /// Something that can be drawn as part of the GUI.
@@ -61,10 +62,11 @@ pub trait Widget {
     fn draw(
         &self,
         context: &GlContext,
+        surface: &dyn Surface,
         rect: Rect<i32>,
         theme: &Theme,
         draw_2d: &mut Draw2d,
-        cursor_pos: Option<Point2<f64>>,
+        cursor_pos: Option<Point2<i32>>,
         is_active: bool,
     );
 
@@ -121,6 +123,7 @@ fn widget_handle_event(
         let rect = widget_rects[&widget.id()];
         let is_active = active_component_id == Some(widget.id());
 
+        let event = event.clone();
         let event2 = match event {
             Event::KeyDown(_) => {
                 if is_active {
@@ -136,23 +139,23 @@ fn widget_handle_event(
                     None
                 }
             }
-            Event::MouseDown(_, pos) => {
-                if rect.contains_point(*pos) {
-                    Some(event)
+            Event::MouseDown(button, pos) => {
+                if rect.contains_point(pos) {
+                    Some(Event::MouseDown(button, pos - rect.start.to_vec()))
                 } else {
                     None
                 }
             }
-            Event::MouseUp(_, pos) => {
-                if rect.contains_point(*pos) {
-                    Some(event)
+            Event::MouseUp(button, pos) => {
+                if rect.contains_point(pos) {
+                    Some(Event::MouseUp(button, pos - rect.start.to_vec()))
                 } else {
                     None
                 }
             }
-            Event::MouseMove(pos) => {
-                if rect.contains_point(*pos) {
-                    Some(event)
+            Event::MouseMove { pos, movement } => {
+                if rect.contains_point(pos) {
+                    Some(Event::MouseMove { pos: pos - rect.start.to_vec(), movement })
                 } else {
                     None
                 }
@@ -161,10 +164,13 @@ fn widget_handle_event(
             Event::MouseLeave => None,
             Event::FocusGained => Some(event),
             Event::FocusLost => Some(event),
+            Event::WindowResized(_) => Some(event),
+            Event::PointerLocked => None,
+            Event::PointerUnlocked => None,
         };
         if let Some(event2) = event2 {
             let events = events_out.entry(widget.id()).or_insert(vec![]);
-            events.push(event2.clone());
+            events.push(event2);
             return true;
         }
     }
@@ -179,17 +185,27 @@ fn widget_handle_event(
 fn draw_widget(
     widget: &dyn Widget,
     context: &GlContext,
+    surface: &dyn Surface,
     theme: &Theme,
     draw_2d: &mut Draw2d,
     widget_rects: &FnvHashMap<WidgetId, Rect<i32>>,
-    cursor_pos: Option<Point2<f64>>,
+    cursor_pos: Option<Point2<i32>>,
     active_widget_id: Option<WidgetId>,
 ) {
     let rect = widget_rects[&widget.id()];
     let is_active = active_widget_id == Some(widget.id());
-    widget.draw(context, rect, theme, draw_2d, cursor_pos, is_active);
+    widget.draw(context, surface, rect, theme, draw_2d, cursor_pos, is_active);
     for child in widget.children() {
-        draw_widget(child, context, theme, draw_2d, widget_rects, cursor_pos, active_widget_id);
+        draw_widget(
+            child,
+            context,
+            surface,
+            theme,
+            draw_2d,
+            widget_rects,
+            cursor_pos,
+            active_widget_id,
+        );
     }
 }
 
@@ -213,9 +229,13 @@ impl GuiResult {
 
 impl GuiEventResult {
     /// Updates the given `Component` with any events that apply to it.
-    pub fn update_component<C: Component>(&mut self, component: &mut Box<C>) -> C::Res {
+    pub fn update_component<C: Component>(
+        &mut self,
+        theme: &Theme,
+        component: &mut Box<C>,
+    ) -> C::Res {
         let events = self.component_events.remove(&component.id()).unwrap_or_else(|| vec![]);
-        component.update(events)
+        component.update(theme, events)
     }
 
     /// Returns all events that weren't handled by any `Component`.
@@ -248,7 +268,7 @@ impl Gui {
         surface: &impl Surface,
         theme: &Theme,
         draw_2d: &mut Draw2d,
-        cursor_pos: Option<Point2<f64>>,
+        cursor_pos: Option<Point2<i32>>,
         widget: Box<dyn Widget>,
     ) -> GuiResult {
         println!("Computing widget rects");
@@ -269,6 +289,7 @@ impl Gui {
         draw_widget(
             &*widget,
             context,
+            surface,
             theme,
             draw_2d,
             &widget_rects,
@@ -350,8 +371,6 @@ impl Gui {
                             }
                             _ => (),
                         }
-                    } else {
-                        panic!();
                     }
                 }
                 unhandled_events.push(event.clone());

@@ -9,11 +9,14 @@ pub enum Event {
     KeyUp(Key),
     MouseDown(MouseButton, Point2<i32>),
     MouseUp(MouseButton, Point2<i32>),
-    MouseMove(Point2<i32>),
+    MouseMove { pos: Point2<i32>, movement: Vector2<i32> },
     MouseEnter,
     MouseLeave,
     FocusGained,
     FocusLost,
+    WindowResized(Vector2<u32>),
+    PointerLocked,
+    PointerUnlocked,
 }
 
 pub type Keycode = String;
@@ -44,7 +47,7 @@ impl Key {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub enum MouseButton {
     Left,
     Right,
@@ -81,5 +84,16 @@ pub(crate) fn mouse_up_event_from_js(event: MouseEvent) -> Option<Event> {
 }
 
 pub(crate) fn mouse_move_event_from_js(event: MouseEvent) -> Option<Event> {
-    Some(Event::MouseMove(mouse_pos_from_js(event)))
+    Some(Event::MouseMove {
+        movement: vec2(event.movement_x(), event.movement_y()),
+        pos: mouse_pos_from_js(event),
+    })
+}
+
+pub fn get_window_size() -> Vector2<u32> {
+    let window = window().unwrap();
+    vec2(
+        window.inner_width().unwrap().as_f64().unwrap() as u32,
+        window.inner_height().unwrap().as_f64().unwrap() as u32,
+    )
 }

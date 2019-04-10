@@ -223,7 +223,7 @@ impl FontInner {
             MagFilter::Nearest,
             WrapMode::ClampToEdge,
         );
-        framebuffer.clear(context, &[ClearBuffer::Color(Color4::TRANSPARENT)]);
+        framebuffer.clear(context, &[ClearBuffer::Color(Color4::TRANSPARENT.into())]);
 
         // TODO: find a way to share these programs between all Font instances
         let cache_program =
