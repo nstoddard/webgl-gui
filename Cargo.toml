@@ -12,14 +12,14 @@ uid = "0.1.4"
 cgmath = { git = "https://github.com/rustgd/cgmath", features = ["serde"] }
 wasm-bindgen = "0.2.40"
 log = "0.4.6"
-wasm-bindgen-futures = "0.3.17"
+wasm-bindgen-futures = "0.3.18"
 futures = "0.1.26"
-js-sys = "0.3.17"
+js-sys = "0.3.18"
 webgl-wrapper = { git = "https://github.com/nstoddard/webgl-wrapper" }
 wasm-stopwatch = "0.1.0"
 
 [dependencies.web-sys]
-version = "0.3.17"
+version = "0.3.18"
 features = [
   "EventTarget",
   "KeyboardEvent",

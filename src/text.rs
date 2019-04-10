@@ -24,7 +24,7 @@ impl VertexComponent for TextCacheVert {
     }
 }
 
-impl Vertex for TextCacheVert {
+impl VertexData for TextCacheVert {
     const ATTRIBUTES: Attributes = &[("pos", 2), ("uv", 2)];
 }
 
@@ -42,7 +42,7 @@ impl VertexComponent for TextRenderVert {
     }
 }
 
-impl Vertex for TextRenderVert {
+impl VertexData for TextRenderVert {
     const ATTRIBUTES: Attributes = &[("pos", 2), ("uv", 2), ("color", 4)];
 }
 

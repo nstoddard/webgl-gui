@@ -12,7 +12,7 @@ struct PlainVert {
     color: Color4,
 }
 
-impl Vertex for PlainVert {
+impl VertexData for PlainVert {
     const ATTRIBUTES: Attributes = &[("pos", 2), ("color", 4)];
 }
 
@@ -56,7 +56,7 @@ struct ImageVert {
     color: Color4,
 }
 
-impl Vertex for ImageVert {
+impl VertexData for ImageVert {
     const ATTRIBUTES: Attributes = &[("pos", 2), ("uv", 2), ("color", 4)];
 }
 
