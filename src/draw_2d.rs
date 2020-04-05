@@ -7,9 +7,9 @@ use webgl_wrapper::*;
 use crate::color::*;
 use crate::shader_header::*;
 
-struct PlainVert {
-    pos: Point2<f32>,
-    color: Color4,
+pub struct PlainVert {
+    pub pos: Point2<f32>,
+    pub color: Color4,
 }
 
 impl VertexData for PlainVert {
@@ -23,12 +23,12 @@ impl VertexComponent for PlainVert {
     }
 }
 
-struct PlainUniforms {
-    matrix: Matrix4<f32>,
-    color: Color4,
+pub struct PlainUniforms {
+    pub matrix: Matrix4<f32>,
+    pub color: Color4,
 }
 
-struct PlainUniformsGl {
+pub struct PlainUniformsGl {
     matrix: Matrix4Uniform,
     color: Color4Uniform,
 }
@@ -50,7 +50,7 @@ impl GlUniforms for PlainUniformsGl {
     }
 }
 
-struct ImageVert {
+pub struct ImageVert {
     pos: Point2<f32>,
     uv: Point2<f32>,
     color: Color4,
@@ -68,13 +68,13 @@ impl VertexComponent for ImageVert {
     }
 }
 
-struct ImageUniforms<'a> {
+pub struct ImageUniforms<'a> {
     matrix: Matrix4<f32>,
     color: Color4,
     tex: &'a Texture2d,
 }
 
-struct ImageUniformsGl {
+pub struct ImageUniformsGl {
     matrix: Matrix4Uniform,
     color: Color4Uniform,
     tex: TextureUniform,
@@ -99,23 +99,16 @@ impl GlUniforms for ImageUniformsGl {
     }
 }
 
-/// A struct for drawing 2D shapes.
-///
-/// All distance units are pixels, from the top-left corner of the screen.
+/// Contains OpenGL programs used by `Draw2d`
 ///
 /// This is expensive to create, so try to only create one of them.
-// TODO: put program creation somewhere else so this isn't so expensive to create
-// TODO: many of the methods here should be on MeshBuilder<PlainVert, Triangles>
-pub struct Draw2d {
-    triangle_mesh_builder: MeshBuilder<PlainVert, Triangles>,
-    triangle_mesh: Mesh<PlainVert, PlainUniformsGl, Triangles>,
-    image_mesh_builder: MeshBuilder<ImageVert, Triangles>,
-    image_mesh_srgb: Mesh<ImageVert, ImageUniformsGl, Triangles>,
-    image_mesh_linear: Mesh<ImageVert, ImageUniformsGl, Triangles>,
+pub struct Draw2dPrograms {
+    pub plain_program: GlProgram<PlainVert, PlainUniformsGl>,
+    pub image_program_srgb: GlProgram<ImageVert, ImageUniformsGl>,
+    pub image_program_linear: GlProgram<ImageVert, ImageUniformsGl>,
 }
 
-impl Draw2d {
-    /// Creates an object that can render a few types of basic geometric shapes.
+impl Draw2dPrograms {
     pub fn new(context: &GlContext) -> Self {
         let plain_program: GlProgram<PlainVert, PlainUniformsGl> = GlProgram::new_with_header(
             &context,
@@ -136,11 +129,38 @@ impl Draw2d {
                 include_str!("../shaders/image_frag.glsl"),
                 false,
             );
+        Self { plain_program, image_program_srgb, image_program_linear }
+    }
+}
+
+/// A struct for drawing 2D shapes.
+///
+/// All distance units are pixels, from the top-left corner of the screen.
+///
+// TODO: many of the methods here should be on MeshBuilder<PlainVert, Triangles>
+pub struct Draw2d {
+    triangle_mesh_builder: MeshBuilder<PlainVert, Triangles>,
+    triangle_mesh: Mesh<PlainVert, PlainUniformsGl, Triangles>,
+    image_mesh_builder: MeshBuilder<ImageVert, Triangles>,
+    image_mesh_srgb: Mesh<ImageVert, ImageUniformsGl, Triangles>,
+    image_mesh_linear: Mesh<ImageVert, ImageUniformsGl, Triangles>,
+}
+
+pub fn compute_ortho_matrix(surface: &(impl Surface + ?Sized)) -> Matrix4<f32> {
+    let surface_size = surface.size();
+    Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)
+        * ortho(0.0, surface_size.x as f32, 0.0, surface_size.y as f32, 0.0, 1.0)
+}
+
+impl Draw2d {
+    /// Creates an object that can render a few types of basic geometric shapes.
+    pub fn new(context: &GlContext, programs: &Draw2dPrograms) -> Self {
         let triangle_mesh_builder = MeshBuilder::new();
-        let triangle_mesh = Mesh::new(context, &plain_program, DrawMode::Draw2D);
+        let triangle_mesh = Mesh::new(context, &programs.plain_program, DrawMode::Draw2D);
         let image_mesh_builder = MeshBuilder::new();
-        let image_mesh_srgb = Mesh::new(context, &image_program_srgb, DrawMode::Draw2D);
-        let image_mesh_linear = Mesh::new(context, &image_program_linear, DrawMode::Draw2D);
+        let image_mesh_srgb = Mesh::new(context, &programs.image_program_srgb, DrawMode::Draw2D);
+        let image_mesh_linear =
+            Mesh::new(context, &programs.image_program_linear, DrawMode::Draw2D);
         Self {
             triangle_mesh_builder,
             triangle_mesh,
@@ -153,11 +173,7 @@ impl Draw2d {
     /// Render all queued shapes. Until this is called nothing is actually rendered.
     ///
     /// This should typically be called once per frame to minimize the number of draw calls.
-    pub fn render_queued(&mut self, surface: &(impl Surface + ?Sized)) {
-        let surface_size = surface.size();
-        let matrix = Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)
-            * ortho(0.0, surface_size.x as f32, 0.0, surface_size.y as f32, 0.0, 1.0);
-
+    pub fn render_queued(&mut self, surface: &(impl Surface + ?Sized), matrix: Matrix4<f32>) {
         self.triangle_mesh.build_from(&self.triangle_mesh_builder, MeshUsage::DynamicDraw);
         self.triangle_mesh.draw(surface, &PlainUniforms { matrix, color: Color4::WHITE });
 
@@ -192,6 +208,10 @@ impl Draw2d {
             mesh_builder.triangle(vert_a, vert_b, vert_c);
             mesh_builder.triangle(vert_b, vert_c, vert_d);
         }
+    }
+
+    pub fn draw_line(&mut self, a: Point2<f32>, b: Point2<f32>, color: Color4, width: f32) {
+        self.draw_line_strip(&[a, b], color, width);
     }
 
     pub fn fill_rect(&mut self, rect: Rect<i32>, color: Color4) {
@@ -269,6 +289,6 @@ impl Draw2d {
 
 /// Returns the vector 90 degrees counterclockwise from the given vector.
 #[inline]
-pub fn ccw_perp<T: Neg<Output = T>>(x: Vector2<T>) -> Vector2<T> {
+fn ccw_perp<T: Neg<Output = T>>(x: Vector2<T>) -> Vector2<T> {
     vec2(x.y, -x.x)
 }

@@ -164,7 +164,6 @@ struct FontInner {
     size: u32,
     font: rusttype::Font<'static>,
     advance_y: i32,
-    descent: f32,
     ascent: f32,
     glyphs: FnvHashMap<char, CachedGlyph>,
     kerning: FnvHashMap<(char, char), f32>,
@@ -239,7 +238,6 @@ impl FontInner {
             size,
             font,
             advance_y: advance_y as i32,
-            descent,
             ascent,
             glyphs: FnvHashMap::default(),
             kerning: FnvHashMap::default(),
@@ -312,14 +310,17 @@ impl FontInner {
             let glyph_texture_size = display.texture.size();
             let line_out_of_space = self.cur_x + glyph_texture_size.x >= framebuffer_size.x;
             let (x, y) = if line_out_of_space {
-                (0, self.cur_y + self.advance_y as u32)
+                // Note: 1.0 was added to try to avoid overlap between chars
+                // TODO: see if there's a way to do that without the wasted space
+                (0, self.cur_y + self.advance_y as u32 + 1)
             } else {
                 (self.cur_x, self.cur_y)
             };
             if y >= framebuffer_size.y {
                 panic!("Font cache full");
             }
-            self.cur_x = x + glyph_texture_size.x;
+            // Note: 1.0 was added to try to avoid overlap between chars
+            self.cur_x = x + glyph_texture_size.x + 1;
             self.cur_y = y;
 
             let mesh_builder = &mut self.cache_mesh_builder;
@@ -350,7 +351,7 @@ impl FontInner {
                         framebuffer_size.y as f32,
                         0.0,
                         1.0,
-                    ), //Mat4::ortho(framebuffer_size.x as f32, framebuffer_size.y as f32),
+                    ),
                     tex: &display.texture,
                 },
             );
@@ -385,14 +386,33 @@ impl FontInner {
         self.render_mesh_builder.clear();
     }
 
-    pub fn draw_string(&mut self, context: &GlContext, str: &str, loc: Point2<i32>, color: Color4) {
+    pub fn render_queued_chars_custom_matrix(
+        &mut self,
+        surface: &impl Surface,
+        matrix: Matrix4<f32>,
+    ) {
+        self.render_mesh.build_from(&self.render_mesh_builder, MeshUsage::DynamicDraw);
+        self.render_mesh
+            .draw(surface, &TextRenderUniforms { matrix, tex: &self.framebuffer.attachment });
+
+        self.render_mesh_builder.clear();
+    }
+
+    pub fn draw_string(
+        &mut self,
+        context: &GlContext,
+        str: &str,
+        loc: Point2<f32>,
+        color: Color4,
+        matrix: Matrix4<f32>,
+    ) {
         for c in str.chars() {
             self.cache_glyph(context, c);
         }
 
         let mut x_pos = 0;
         for (a, b) in str.chars().zip(str.chars().skip(1).map(Some).chain(iter::once(None))) {
-            self.draw_char(context, a, loc + vec2(x_pos, 0), color);
+            self.draw_char(context, a, loc + vec2(x_pos as f32, 0.0), color, matrix);
             if let Some(b) = b {
                 // TODO: remove cast? Or else either floor/round
                 x_pos += self.horiz_advance_between(a, b) as i32;
@@ -400,7 +420,14 @@ impl FontInner {
         }
     }
 
-    pub fn draw_char(&mut self, context: &GlContext, c: char, loc: Point2<i32>, color: Color4) {
+    pub fn draw_char(
+        &mut self,
+        context: &GlContext,
+        c: char,
+        loc: Point2<f32>,
+        color: Color4,
+        matrix: Matrix4<f32>,
+    ) {
         self.cache_glyph(context, c);
         let glyph = self.get_cached_glyph(c);
         if let Some(display) = &glyph.display {
@@ -419,22 +446,34 @@ impl FontInner {
             let mesh_builder = &mut self.render_mesh_builder;
 
             let vert_a = mesh_builder.vert(TextRenderVert {
-                pos: vec2(loc.x + left, loc.y + top),
+                pos: to_vec2(matrix.transform_point(point3(loc.x + left, loc.y + top, 0.0))),
                 uv: vec2(tex_start_x, tex_start_y),
                 color,
             });
             let vert_b = mesh_builder.vert(TextRenderVert {
-                pos: vec2(loc.x + left + size.x, loc.y + top),
+                pos: to_vec2(matrix.transform_point(point3(
+                    loc.x + left + size.x,
+                    loc.y + top,
+                    0.0,
+                ))),
                 uv: vec2(tex_end_x, tex_start_y),
                 color,
             });
             let vert_c = mesh_builder.vert(TextRenderVert {
-                pos: vec2(loc.x + left, loc.y + top + size.y),
+                pos: to_vec2(matrix.transform_point(point3(
+                    loc.x + left,
+                    loc.y + top + size.y,
+                    0.0,
+                ))),
                 uv: vec2(tex_start_x, tex_end_y),
                 color,
             });
             let vert_d = mesh_builder.vert(TextRenderVert {
-                pos: vec2(loc.x + left + size.x, loc.y + top + size.y),
+                pos: to_vec2(matrix.transform_point(point3(
+                    loc.x + left + size.x,
+                    loc.y + top + size.y,
+                    0.0,
+                ))),
                 uv: vec2(tex_end_x, tex_end_y),
                 color,
             });
@@ -494,7 +533,7 @@ impl FontInner {
 ///
 /// Internally this uses a cache to store previously rendered characters.
 ///
-/// This is expensive to create, so try to create as few instances as possible.
+/// This is expensive to create, so try to create only one instance per font/size combination.
 #[derive(Clone)]
 pub struct Font {
     inner: Rc<RefCell<FontInner>>,
@@ -513,14 +552,61 @@ impl Font {
         self.inner.borrow_mut().render_queued_chars(surface);
     }
 
+    /// Renders all characters that have been drawn with `draw_string` or `draw_char`.
+    ///
+    /// This allows a matrix to be specified which will be used instead of a standard orthographic
+    /// projection. This can be useful for rendering text in a game world rather than as part of a
+    /// GUI.
+    ///
+    /// This should typically be called once per frame to minimize the number of draw calls.
+    pub fn render_queued_custom_matrix(&self, surface: &impl Surface, matrix: Matrix4<f32>) {
+        self.inner.borrow_mut().render_queued_chars_custom_matrix(surface, matrix);
+    }
+
     /// Queues a string for drawing. To render all queued characters, call `render_queued_chars`.
     pub fn draw_string(&self, context: &GlContext, str: &str, loc: Point2<i32>, color: Color4) {
-        self.inner.borrow_mut().draw_string(context, str, loc, color);
+        self.draw_string_f32(
+            context,
+            str,
+            point2(loc.x as f32, loc.y as f32),
+            color,
+            Matrix4::identity(),
+        );
     }
 
     /// Queues a character to be drawn. To render all queued characters, call `render_queued_chars`.
     pub fn draw_char(&self, context: &GlContext, c: char, loc: Point2<i32>, color: Color4) {
-        self.inner.borrow_mut().draw_char(context, c, loc, color);
+        self.draw_char_f32(
+            context,
+            c,
+            point2(loc.x as f32, loc.y as f32),
+            color,
+            Matrix4::identity(),
+        );
+    }
+
+    /// Queues a string for drawing. To render all queued characters, call `render_queued_chars`.
+    pub fn draw_string_f32(
+        &self,
+        context: &GlContext,
+        str: &str,
+        loc: Point2<f32>,
+        color: Color4,
+        matrix: Matrix4<f32>,
+    ) {
+        self.inner.borrow_mut().draw_string(context, str, loc, color, matrix);
+    }
+
+    /// Queues a character to be drawn. To render all queued characters, call `render_queued_chars`.
+    pub fn draw_char_f32(
+        &self,
+        context: &GlContext,
+        c: char,
+        loc: Point2<f32>,
+        color: Color4,
+        matrix: Matrix4<f32>,
+    ) {
+        self.inner.borrow_mut().draw_char(context, c, loc, color, matrix);
     }
 
     /// Returns the width of a rendered string in pixels.
@@ -541,4 +627,9 @@ impl Font {
     pub fn advance_y(&self) -> i32 {
         self.inner.borrow().advance_y
     }
+}
+
+// TODO: put this somewhere else
+fn to_vec2(vec: Point3<f32>) -> Vector2<f32> {
+    vec2(vec.x, vec.y)
 }

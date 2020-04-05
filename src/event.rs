@@ -1,5 +1,5 @@
 use cgmath::*;
-use web_sys::*;
+use web_sys::{window, KeyboardEvent, MouseEvent};
 
 // TODO: can Clone be removed for these types?
 /// An event.
@@ -17,6 +17,7 @@ pub enum Event {
     WindowResized(Vector2<u32>),
     PointerLocked,
     PointerUnlocked,
+    Scroll(f64),
 }
 
 pub type Keycode = String;
@@ -35,8 +36,11 @@ pub struct Key {
     pub alt: bool,
 }
 
+// TODO: add more
+const MODIFIERS: &[&str] = &["Alt", "Control", "Shift"];
+
 impl Key {
-    pub(crate) fn from_js(js_key: KeyboardEvent) -> Self {
+    pub(crate) fn from_js(js_key: &KeyboardEvent) -> Self {
         Self {
             key: js_key.key(),
             code: js_key.code(),
@@ -44,6 +48,10 @@ impl Key {
             ctrl: js_key.ctrl_key(),
             alt: js_key.alt_key(),
         }
+    }
+
+    pub fn is_modifier(&self) -> bool {
+        MODIFIERS.contains(&self.key.as_ref())
     }
 }
 

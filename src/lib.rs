@@ -17,7 +17,7 @@ pub mod widgets;
 
 pub use crate::assets::*;
 pub use crate::color::*;
-pub use crate::draw_2d::Draw2d;
+pub use crate::draw_2d::*;
 pub use crate::event::*;
 pub use crate::gui::*;
 pub use crate::main_loop::*;

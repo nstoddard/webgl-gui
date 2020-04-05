@@ -1,7 +1,6 @@
 use cgmath::*;
 use collect_mac::*;
 use fnv::*;
-use log::*;
 use std::mem;
 use uid::*;
 use webgl_wrapper::*;
@@ -52,13 +51,13 @@ pub trait Widget {
     ///
     /// It is undefined behavior if there's a component within another
     /// component. In the current implementation, the outer component will
-    /// receive the event, but it's not guaranteed.
+    /// receive the event, but this behavior isn't guaranteed.
     fn is_component(&self) -> bool {
         false
     }
 
     /// Does *not* need to draw its children. Its children will be automatically drawn after
-    /// this widget.
+    /// this widget is drawn.
     fn draw(
         &self,
         context: &GlContext,
@@ -85,7 +84,7 @@ pub trait Widget {
         vec![]
     }
 
-    /// This must add the widget's Rect and call itself recursively for each
+    /// This must add the widget's `Rect` and call itself recursively for each
     /// child. It must be overridden if the widget has any children.
     fn compute_rects(
         &self,
@@ -109,7 +108,7 @@ fn compute_widget_min_size(
         compute_widget_min_size(child, context, theme, min_sizes, window_size);
     }
     let min_size = widget.min_size(context, theme, min_sizes, window_size);
-    min_sizes.insert(widget.id(), min_size); //Vec2(min_size.x.min(window_size.x), min_size.y.min(window_size.y)));
+    min_sizes.insert(widget.id(), min_size);
 }
 
 fn widget_handle_event(
@@ -117,11 +116,12 @@ fn widget_handle_event(
     event: &Event,
     widget_rects: &FnvHashMap<WidgetId, Rect<i32>>,
     events_out: &mut FnvHashMap<WidgetId, Vec<Event>>,
-    active_component_id: Option<WidgetId>,
+    active_component_id: &mut Option<WidgetId>,
+    selectable_components: &FnvHashSet<WidgetId>,
 ) -> bool {
     if widget.is_component() {
         let rect = widget_rects[&widget.id()];
-        let is_active = active_component_id == Some(widget.id());
+        let is_active = *active_component_id == Some(widget.id());
 
         let event = event.clone();
         let event2 = match event {
@@ -141,6 +141,9 @@ fn widget_handle_event(
             }
             Event::MouseDown(button, pos) => {
                 if rect.contains_point(pos) {
+                    if button == MouseButton::Left {
+                        *active_component_id = Some(widget.id());
+                    }
                     Some(Event::MouseDown(button, pos - rect.start.to_vec()))
                 } else {
                     None
@@ -167,15 +170,23 @@ fn widget_handle_event(
             Event::WindowResized(_) => Some(event),
             Event::PointerLocked => None,
             Event::PointerUnlocked => None,
+            Event::Scroll(_) => Some(event),
         };
         if let Some(event2) = event2 {
-            let events = events_out.entry(widget.id()).or_insert(vec![]);
+            let events = events_out.entry(widget.id()).or_insert_with(|| vec![]);
             events.push(event2);
             return true;
         }
     }
     for child in widget.children() {
-        if widget_handle_event(child, event, widget_rects, events_out, active_component_id) {
+        if widget_handle_event(
+            child,
+            event,
+            widget_rects,
+            events_out,
+            active_component_id,
+            selectable_components,
+        ) {
             return true;
         }
     }
@@ -310,67 +321,65 @@ impl Gui {
     /// Handles events by applying them to the most recently rendered output.
     /// The ordered_components must use the same IDs as the ones passed into
     /// the last call to GUI.draw().
-    // TODO: is keyboard_navigates redundant with active_component_id being Some?
-    // TODO: events: Vec<Event>
+    // TODO: consider changing `events` to `Vec<Event>`
     pub fn handle_events(
         &mut self,
         events: &[Event],
-        // keyboard_navigates: bool,
         ordered_components: &[WidgetId],
     ) -> GuiEventResult {
         if let Some(RenderedGui { widget, widget_rects }) = &self.last_render {
             let mut events_out = collect![];
             let mut unhandled_events = vec![];
-            let active_component_id = self.active_component.map(|(_a, b)| b);
+            let mut active_component_id = self.active_component.map(|(_a, b)| b);
 
-            if true//keyboard_navigates
-                && !ordered_components.is_empty()
-                && self.active_component.is_none()
-            {
+            // TODO: tab should work even without an active component
+            /*if !ordered_components.is_empty() && self.active_component.is_none() {
                 self.active_component = Some((0, ordered_components[0]));
-            }
+            }*/
 
             for event in events {
+                let old_active_component_id = active_component_id;
                 if widget_handle_event(
                     &**widget,
                     &event,
                     &widget_rects,
                     &mut events_out,
-                    active_component_id,
+                    &mut active_component_id,
+                    &ordered_components.iter().copied().collect(),
                 ) {
-                    continue;
+                    // continue;
                 }
-                if true {
-                    //keyboard_navigates {
-                    if let Some((ref mut active_component_index, ref mut active_component_id)) =
-                        &mut self.active_component
-                    {
-                        match event {
-                            Event::KeyDown(key) => {
-                                if key.key == "ArrowDown"
-                                    || key.key == "ArrowRight"
-                                    || (key.key == "Tab" && !key.shift)
-                                {
-                                    *active_component_index = (*active_component_index + 1)
-                                        % (ordered_components.len() as i32);
-                                    *active_component_id =
-                                        ordered_components[*active_component_index as usize];
-                                    continue;
-                                } else if key.key == "ArrowUp"
-                                    || key.key == "ArrowLeft"
-                                    || (key.key == "Tab" && key.shift)
-                                {
-                                    // Workaround for mod_euc not yet being stable
-                                    *active_component_index = (*active_component_index - 1
-                                        + ordered_components.len() as i32)
-                                        % (ordered_components.len() as i32);
-                                    *active_component_id =
-                                        ordered_components[*active_component_index as usize];
-                                    continue;
-                                }
+                if active_component_id != old_active_component_id {
+                    let active_component_id = active_component_id.unwrap();
+                    self.active_component = Some((
+                        ordered_components.iter().position(|x| *x == active_component_id).unwrap()
+                            as i32,
+                        active_component_id,
+                    ));
+                }
+
+                if let Some((ref mut active_component_index, ref mut active_component_id)) =
+                    &mut self.active_component
+                {
+                    match event {
+                        Event::KeyDown(key) => {
+                            if key.key == "Tab" && !key.shift {
+                                *active_component_index = (*active_component_index + 1)
+                                    % (ordered_components.len() as i32);
+                                *active_component_id =
+                                    ordered_components[*active_component_index as usize];
+                                continue;
+                            } else if key.key == "Tab" && key.shift {
+                                // Workaround for mod_euc not yet being stable
+                                *active_component_index = (*active_component_index - 1
+                                    + ordered_components.len() as i32)
+                                    % (ordered_components.len() as i32);
+                                *active_component_id =
+                                    ordered_components[*active_component_index as usize];
+                                continue;
                             }
-                            _ => (),
                         }
+                        _ => (),
                     }
                 }
                 unhandled_events.push(event.clone());

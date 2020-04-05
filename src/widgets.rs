@@ -1,6 +1,7 @@
 use cgmath::*;
 use fnv::*;
-use log::*;
+use std::mem;
+use wasm_stopwatch::*;
 use webgl_wrapper::*;
 
 use crate::color::*;
@@ -212,7 +213,7 @@ impl Widget for NoFill {
 
 pub struct Col {
     id: WidgetId,
-    children: Vec<(Box<dyn Widget>, f64)>,
+    children: Vec<(Box<dyn Widget>, f32)>,
 }
 
 impl Col {
@@ -221,12 +222,12 @@ impl Col {
     }
 
     /// Flex controls how to distribute unused space.
-    pub fn child(mut self: Box<Self>, flex: f64, child: Box<dyn Widget>) -> Box<Self> {
+    pub fn child(mut self: Box<Self>, flex: f32, child: Box<dyn Widget>) -> Box<Self> {
         self.children.push((child, flex));
         self
     }
 
-    pub fn children(mut self: Box<Self>, children: Vec<(f64, Box<dyn Widget>)>) -> Box<Self> {
+    pub fn children(mut self: Box<Self>, children: Vec<(f32, Box<dyn Widget>)>) -> Box<Self> {
         self.children.extend(children.into_iter().map(|(a, b)| (b, a)));
         self
     }
@@ -289,7 +290,7 @@ impl Widget for Col {
         let extra_space = rect.size().y - min_size.y;
         for &(ref child, flex) in &self.children {
             let child_min_size = min_sizes[&child.id()];
-            let widget_extra_space = (extra_space as f64 * flex / total_flex) as i32;
+            let widget_extra_space = (extra_space as f32 * flex / total_flex) as i32;
             let widget_height = child_min_size.y + widget_extra_space;
             let widget_rect = Rect::new(next_pos, next_pos + vec2(rect.size().x, widget_height));
             next_pos.y += widget_height;
@@ -300,7 +301,7 @@ impl Widget for Col {
 
 pub struct Row {
     id: WidgetId,
-    children: Vec<(Box<dyn Widget>, f64)>,
+    children: Vec<(Box<dyn Widget>, f32)>,
 }
 
 impl Row {
@@ -309,12 +310,12 @@ impl Row {
     }
 
     /// Flex controls how to distribute unused space.
-    pub fn child(mut self: Box<Self>, flex: f64, child: Box<dyn Widget>) -> Box<Self> {
+    pub fn child(mut self: Box<Self>, flex: f32, child: Box<dyn Widget>) -> Box<Self> {
         self.children.push((child, flex));
         self
     }
 
-    pub fn children(mut self: Box<Self>, children: Vec<(f64, Box<dyn Widget>)>) -> Box<Self> {
+    pub fn children(mut self: Box<Self>, children: Vec<(f32, Box<dyn Widget>)>) -> Box<Self> {
         self.children.extend(children.into_iter().map(|(a, b)| (b, a)));
         self
     }
@@ -377,7 +378,7 @@ impl Widget for Row {
         let extra_space = rect.size().x - min_size.x;
         for &(ref child, flex) in &self.children {
             let child_min_size = min_sizes[&child.id()];
-            let widget_extra_space = (extra_space as f64 * flex / total_flex) as i32;
+            let widget_extra_space = (extra_space as f32 * flex / total_flex) as i32;
             let widget_width = child_min_size.x + widget_extra_space;
             let widget_rect = Rect::new(next_pos, next_pos + vec2(widget_width, rect.size().y));
             next_pos.x += widget_width;
@@ -752,19 +753,32 @@ pub struct Selector<T: Copy + PartialEq> {
 }
 
 impl<T: Copy + PartialEq> Selector<T> {
-    pub fn new(options: Vec<(String, T)>, selected_option: Option<T>) -> Box<Self> {
-        let mut res = Box::new(Self {
-            selected_option: selected_option.map(|selected_option| {
-                options.iter().position(|x| selected_option == x.1).unwrap()
-            }),
+    pub fn new(options: Vec<(String, T)>, selected_option: Option<(String, T)>) -> Box<Self> {
+        Box::new(Self {
+            selected_option: selected_option
+                .map(|selected_option| options.iter().position(|x| &selected_option == x).unwrap()),
             options,
             id: WidgetId::new(),
-        });
-        res
+        })
     }
 
     pub fn selected_option(&self) -> Option<T> {
         self.selected_option.map(|selected_option| self.options[selected_option].1)
+    }
+
+    pub fn add_option(&mut self, option: (String, T)) {
+        self.options.push(option);
+    }
+
+    pub fn remove_option(&mut self, i: usize) {
+        self.options.remove(i);
+        if let Some(selected_option) = &mut self.selected_option {
+            if *selected_option == i {
+                self.selected_option = None;
+            } else if *selected_option > i {
+                *selected_option -= 1;
+            }
+        }
     }
 }
 
@@ -822,7 +836,7 @@ impl<T: Copy + PartialEq> Widget for Selector<T> {
 }
 
 pub struct SelectorResult<T: Copy + PartialEq> {
-    pub selected: Option<T>,
+    pub selected: Option<(String, T)>,
     pub just_selected: bool,
 }
 
@@ -835,7 +849,12 @@ impl<T: Copy + PartialEq> Component for Selector<T> {
             match event {
                 Event::MouseDown(MouseButton::Left, pos) => {
                     let entry = pos.y / theme.font.advance_y() as i32;
-                    assert!(entry >= 0 && (entry as usize) < self.options.len());
+                    assert!(
+                        entry >= 0 && (entry as usize) < self.options.len(),
+                        "entry {} out of range (max={})",
+                        entry,
+                        self.options.len()
+                    );
                     self.selected_option = Some(entry as usize);
                     just_selected = true;
                 }
@@ -844,8 +863,248 @@ impl<T: Copy + PartialEq> Component for Selector<T> {
         }
 
         SelectorResult {
-            selected: self.selected_option.map(|selected_option| self.options[selected_option].1),
+            selected: self
+                .selected_option
+                .map(|selected_option| self.options[selected_option].clone()),
             just_selected,
         }
+    }
+}
+
+pub struct Fill {
+    id: WidgetId,
+    child: Box<dyn Widget>,
+    fill_color: Color4,
+}
+
+impl Fill {
+    pub fn new(fill_color: Color4, child: Box<dyn Widget>) -> Box<Self> {
+        Box::new(Fill { id: WidgetId::new(), child, fill_color })
+    }
+}
+
+impl Widget for Fill {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn draw(
+        &self,
+        _context: &GlContext,
+        _surface: &dyn Surface,
+        rect: Rect<i32>,
+        _theme: &Theme,
+        draw_2d: &mut Draw2d,
+        _cursor_pos: Option<Point2<i32>>,
+        _is_active: bool,
+    ) {
+        // TODO: should this subtract (1,1) from end, like Border does?
+        draw_2d.fill_rect(Rect::new(rect.start, rect.end), self.fill_color);
+    }
+
+    fn min_size(
+        &self,
+        _context: &GlContext,
+        _theme: &Theme,
+        min_sizes: &FnvHashMap<WidgetId, Vector2<i32>>,
+        _window_size: Vector2<i32>,
+    ) -> Vector2<i32> {
+        min_sizes[&self.child.id()]
+    }
+
+    fn children(&self) -> Vec<&dyn Widget> {
+        vec![&*self.child]
+    }
+
+    fn compute_rects(
+        &self,
+        rect: Rect<i32>,
+        theme: &Theme,
+        min_sizes: &FnvHashMap<WidgetId, Vector2<i32>>,
+        widget_rects: &mut FnvHashMap<WidgetId, Rect<i32>>,
+    ) {
+        widget_rects.insert(self.id(), Rect::new(rect.start, rect.end));
+        self.child.compute_rects(Rect::new(rect.start, rect.end), theme, min_sizes, widget_rects);
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum TextEntryEvent {
+    AddChar(char),
+    Backspace,
+    CaretLeft,
+    CaretRight,
+    EnterPressed,
+}
+
+pub struct TextEntryResult {
+    pub text: Option<String>,
+}
+
+impl TextEntryResult {
+    pub fn text(&self) -> Option<&str> {
+        // https://stackoverflow.com/questions/31233938/converting-from-optionstring-to-optionstr
+        self.text.as_ref().map(|x| x.as_ref())
+    }
+}
+
+const CARET_BLINK_RATE: f64 = 1.0;
+
+#[derive(Clone)]
+pub struct TextEntry {
+    id: WidgetId,
+    pub text: String,
+    placeholder_text: String,
+    text_color: Color4,
+    caret_pos: i32,
+    // TODO: this should be a max length in pixels
+    max_len: usize,
+    stopwatch: Stopwatch,
+    use_placeholder_text_if_empty: bool,
+    continuous_updates: bool,
+}
+
+impl TextEntry {
+    pub fn new(
+        start_text: &str,
+        placeholder_text: &str,
+        use_placeholder_text_if_empty: bool,
+        max_len: usize,
+        continuous_updates: bool,
+    ) -> Box<Self> {
+        assert!(placeholder_text.len() <= max_len);
+        Box::new(TextEntry {
+            id: WidgetId::new(),
+            text: start_text.to_string(),
+            placeholder_text: placeholder_text.to_string(),
+            text_color: Color4::BLACK,
+            caret_pos: 0,
+            max_len,
+            stopwatch: Stopwatch::new(),
+            use_placeholder_text_if_empty,
+            continuous_updates,
+        })
+    }
+
+    pub fn text_color(mut self: Box<Self>, color: Color4) -> Box<Self> {
+        self.text_color = color;
+        self
+    }
+
+    pub fn cur_text(&self) -> &str {
+        if self.text.is_empty() && self.use_placeholder_text_if_empty {
+            &self.placeholder_text
+        } else {
+            &self.text
+        }
+    }
+
+    fn cur_text_mutable(&mut self) -> String {
+        if self.text.is_empty() && self.use_placeholder_text_if_empty {
+            self.placeholder_text.clone()
+        } else {
+            if self.continuous_updates {
+                self.text.clone()
+            } else {
+                mem::replace(&mut self.text, "".to_owned())
+            }
+        }
+    }
+}
+
+impl Component for TextEntry {
+    type Res = TextEntryResult;
+
+    fn update(&mut self, _theme: &Theme, events: Vec<Event>) -> TextEntryResult {
+        let mut res = None;
+        for event in events {
+            // TODO: handle unicode
+            match event {
+                Event::KeyDown(key) => match key.key.as_ref() {
+                    "Backspace" => {
+                        if self.caret_pos > 0 {
+                            self.text.remove(self.caret_pos as usize - 1);
+                            self.caret_pos -= 1;
+                        }
+                    }
+                    "ArrowLeft" => self.caret_pos = (self.caret_pos - 1).max(0),
+                    "ArrowRight" => {
+                        self.caret_pos = (self.caret_pos + 1).min(self.text.len() as i32)
+                    }
+                    "Enter" => {
+                        res = Some(self.cur_text_mutable());
+                        self.caret_pos = 0;
+                    }
+                    // TODO: find a better way to check if the char is printable
+                    _ if key.key.len() == 1 => {
+                        if self.text.len() < self.max_len {
+                            self.text
+                                .insert(self.caret_pos as usize, key.key.chars().next().unwrap());
+                            self.caret_pos += 1;
+                        }
+                    }
+                    _ => (),
+                },
+                _ => (),
+            }
+        }
+        if self.continuous_updates {
+            res = Some(self.cur_text().to_owned());
+        }
+        TextEntryResult { text: res }
+    }
+}
+
+impl Widget for TextEntry {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn is_component(&self) -> bool {
+        true
+    }
+
+    fn draw(
+        &self,
+        context: &GlContext,
+        _surface: &dyn Surface,
+        rect: Rect<i32>,
+        theme: &Theme,
+        draw_2d: &mut Draw2d,
+        _cursor_pos: Option<Point2<i32>>,
+        is_active: bool,
+    ) {
+        let fill_color = theme.button_fill_color;
+        let (drawn_text, drawn_text_color) = if self.text.is_empty() {
+            (&self.placeholder_text, theme.button_text_color * 0.8)
+        } else {
+            (&self.text, theme.button_text_color)
+        };
+        draw_2d.fill_rect(rect, fill_color);
+        draw_2d.outline_rect(rect, theme.button_border_color, 1.0);
+        theme.font.draw_string(context, &drawn_text, rect.start + vec2(2, 1), drawn_text_color);
+        if self.stopwatch.get_time().rem_euclid(CARET_BLINK_RATE) < CARET_BLINK_RATE * 0.5
+            && is_active
+        {
+            let caret_x_offset =
+                theme.font.string_width(context, &drawn_text[0..self.caret_pos as usize]) + 2.0;
+            draw_2d.draw_line(
+                point2(caret_x_offset + rect.start.x as f32, rect.start.y as f32 + 2.0),
+                point2(caret_x_offset + rect.start.x as f32, rect.end.y as f32 - 2.0),
+                theme.button_text_color,
+                1.0,
+            );
+        }
+    }
+
+    fn min_size(
+        &self,
+        context: &GlContext,
+        theme: &Theme,
+        _min_sizes: &FnvHashMap<WidgetId, Vector2<i32>>,
+        _window_size: Vector2<i32>,
+    ) -> Vector2<i32> {
+        let drawn_text = if self.text.is_empty() { &self.placeholder_text } else { &self.text };
+        theme.font.string_size(context, drawn_text) + vec2(4, 2)
     }
 }

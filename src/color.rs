@@ -1,3 +1,4 @@
+use serde::*;
 use std::ops::*;
 use web_sys::WebGlProgram;
 use webgl_wrapper::uniforms::*;
@@ -7,7 +8,7 @@ use webgl_wrapper::*;
 ///
 /// This currently approximates sRGB by using a gamma of 2.2.
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Color4 {
     pub r: f32,
     pub g: f32,
@@ -42,6 +43,24 @@ impl Color4 {
     pub fn from_grayscale_srgb(x: f32) -> Color4 {
         let x = x.powf(2.2);
         Color4 { r: x, g: x, b: x, a: 1.0 }
+    }
+
+    pub fn from_hsv(h: f32, s: f32, v: f32) -> Color4 {
+        let s2 = s.abs();
+        let c = v * s2;
+        let h2 = ((h + (if s < 0.0 { 0.5 } else { 0.0 })) % 1.0) * 6.0;
+        let x = c * (1.0 - ((h2 % 2.0) - 1.0).abs());
+        let m = v - c;
+        let (r, g, b) = match h2 as u32 {
+            0 => (c, x, 0.0),
+            1 => (x, c, 0.0),
+            2 => (0.0, c, x),
+            3 => (0.0, x, c),
+            4 => (x, 0.0, c),
+            5 => (c, 0.0, x),
+            _ => panic!("Invalid color in hsv"),
+        };
+        Color4::from_srgb(r + m, g + m, b + m)
     }
 
     /// Converts the `Color4` to sRGB and returns the result in an array.
