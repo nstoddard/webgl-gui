@@ -1,7 +1,6 @@
 use collect_mac::*;
 use futures::future::*;
 use js_sys::*;
-use log::*;
 use std::cell::RefCell;
 use std::collections::*;
 use std::mem;
@@ -91,7 +90,6 @@ impl Assets {
                         loaded_images
                             .borrow_mut()
                             .insert(image_url2.clone(), image_element2.clone());
-                        debug!("Loaded {}", image_url2);
                         resolve.call0(&resolve).unwrap(); // TODO: is this right?
                         onload_handler2.borrow_mut().take();
                     })

@@ -51,9 +51,9 @@ impl GlUniforms for PlainUniformsGl {
 }
 
 pub struct ImageVert {
-    pos: Point2<f32>,
-    uv: Point2<f32>,
-    color: Color4,
+    pub pos: Point2<f32>,
+    pub uv: Point2<f32>,
+    pub color: Color4,
 }
 
 impl VertexData for ImageVert {
@@ -69,9 +69,9 @@ impl VertexComponent for ImageVert {
 }
 
 pub struct ImageUniforms<'a> {
-    matrix: Matrix4<f32>,
-    color: Color4,
-    tex: &'a Texture2d,
+    pub matrix: Matrix4<f32>,
+    pub color: Color4,
+    pub tex: &'a Texture2d,
 }
 
 pub struct ImageUniformsGl {
@@ -173,7 +173,17 @@ impl Draw2d {
     /// Render all queued shapes. Until this is called nothing is actually rendered.
     ///
     /// This should typically be called once per frame to minimize the number of draw calls.
-    pub fn render_queued(&mut self, surface: &(impl Surface + ?Sized), matrix: Matrix4<f32>) {
+    pub fn render_queued(&mut self, surface: &(impl Surface + ?Sized)) {
+        self.render_queued_custom_matrix(surface, compute_ortho_matrix(surface));
+    }
+
+    /// Render all queued shapes. Until this is called nothing is actually rendered.
+    ///
+    /// This allows a matrix to be specified which will be used instead of a standard orthographic
+    /// projection.
+    ///
+    /// This should typically be called once per frame to minimize the number of draw calls.
+    pub fn render_queued_custom_matrix(&mut self, surface: &(impl Surface + ?Sized), matrix: Matrix4<f32>) {
         self.triangle_mesh.build_from(&self.triangle_mesh_builder, MeshUsage::DynamicDraw);
         self.triangle_mesh.draw(surface, &PlainUniforms { matrix, color: Color4::WHITE });
 
